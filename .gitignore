@@ -1,3 +1,8 @@
 # Locally-installed design skills (npx skills add) — not part of the product
 .agents/
 skills-lock.json
+
+# Screenshot tooling (puppeteer) - not part of the product
+node_modules/
+package.json
+package-lock.json
