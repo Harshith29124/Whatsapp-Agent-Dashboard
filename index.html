@@ -97,20 +97,22 @@
   .metric.hero .val { color: var(--brand-text); }
   .metric.hot .val { color: var(--hot-tx); }
 
-  /* ---------- Value prop ---------- */
-  .vp { margin-top: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); padding: 18px 22px; box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
-  .vp-side { display: flex; flex-direction: column; }
-  .vp-side .cap { font-size: 12px; color: var(--text-dim); font-weight: 600; }
-  .vp-side .big { font-size: 30px; font-weight: 750; letter-spacing: -.6px; line-height: 1.05; margin-top: 3px; }
+  /* ---------- Value prop (balanced full-width comparison) ---------- */
+  .vp { margin-top: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); padding: 22px 26px; box-shadow: var(--shadow-sm); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; column-gap: 28px; row-gap: 18px; }
+  .vp-side { display: flex; flex-direction: column; gap: 5px; }
+  .vp-side.manual { align-items: flex-end; text-align: right; }
+  .vp-side .cap { font-size: 12.5px; color: var(--text-dim); font-weight: 600; }
+  .vp-side .big { font-size: clamp(28px, 3.4vw, 40px); font-weight: 750; letter-spacing: -.04em; line-height: 1; }
   .vp-side.agent .big { color: var(--brand-text); }
   .vp-side.manual .big { color: var(--hot-tx); }
-  .vp-side .big .u { font-size: 14px; font-weight: 650; color: var(--text-dim); margin-left: 3px; }
+  .vp-side .big .u { font-size: .42em; font-weight: 650; color: var(--text-dim); margin-left: 4px; }
+  .vp-side .note { font-size: 12px; color: var(--text-faint); }
   .vp-mid { display: flex; flex-direction: column; align-items: center; color: var(--brand-strong); }
-  .vp-mid .icon { width: 22px; height: 22px; }
-  .vp-mid .mult { font-size: 12px; font-weight: 700; color: var(--text); margin-top: 3px; white-space: nowrap; }
-  .vp-bar { flex: 1 1 100%; height: 8px; border-radius: var(--r-pill); background: #fbe5e8; position: relative; overflow: hidden; min-width: 180px; }
-  .vp-bar i { position: absolute; inset: 0 auto 0 0; width: 2%; background: var(--brand); border-radius: var(--r-pill); }
-  .vp-foot { flex: 1 1 100%; font-size: 12px; color: var(--text-faint); }
+  .vp-mid .icon { width: 26px; height: 26px; }
+  .vp-mid .mult { font-size: 12.5px; font-weight: 700; color: var(--text); margin-top: 5px; white-space: nowrap; }
+  .vp-bar { grid-column: 1 / -1; height: 10px; border-radius: var(--r-pill); background: #fbe5e8; position: relative; overflow: hidden; }
+  .vp-bar i { position: absolute; inset: 0 auto 0 0; width: 2.5%; min-width: 14px; background: var(--brand); border-radius: var(--r-pill); }
+  .vp-foot { grid-column: 1 / -1; font-size: 12px; color: var(--text-faint); text-align: center; }
 
   /* ---------- Main grid ---------- */
   .grid { display: grid; gap: 16px; margin: clamp(18px,2.2vw,26px) 0 22px; grid-template-columns: 1.7fr 1fr; align-items: stretch; flex: 1 1 auto; min-height: 440px; }
@@ -291,7 +293,9 @@
   @media (max-width: 560px) {
     .top-inner { padding: 12px 14px; }
     .brand-sub, .clock { display: none; }
-    .vp { gap: 16px; }
+    .vp { grid-template-columns: 1fr; text-align: center; row-gap: 14px; }
+    .vp-side, .vp-side.manual { align-items: center; text-align: center; }
+    .vp-mid .icon { transform: rotate(90deg); }
     .bubble { max-width: 92%; }
     .drawer { width: 100%; }
   }
@@ -384,6 +388,7 @@
     <div class="vp-side agent">
       <span class="cap">ReplyDesk agent</span>
       <span class="big">8<span class="u">sec</span></span>
+      <span class="note">first reply, every single time</span>
     </div>
     <div class="vp-mid">
       <svg class="icon"><use href="#i-arrow"/></svg>
@@ -392,6 +397,7 @@
     <div class="vp-side manual">
       <span class="cap">Typical manual reply</span>
       <span class="big">29<span class="u">hrs</span></span>
+      <span class="note">average SMB lead response</span>
     </div>
     <div class="vp-bar"><i></i></div>
     <div class="vp-foot">78% of customers buy from the business that responds first &mdash; ReplyDesk makes sure that's always you.</div>
