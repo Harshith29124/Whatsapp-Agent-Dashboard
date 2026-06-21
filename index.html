@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ReplyDesk · WhatsApp Lead Agent</title>
+<style>
+  /* ============================================================
+     ReplyDesk — WhatsApp Lead Response Agent (product front-end)
+     Single self-contained file. No dependencies, no localStorage.
+     Mock data is shaped 1:1 with the n8n workflow output so the
+     feed could be wired to a live webhook later.
+
+     Design notes (product register):
+     - Scene: an SMB owner glances at their phone at 11pm and sees
+       the agent already caught and answered a lead. Dark "live
+       console" theme fits a night-and-day ops surface.
+     - Committed to one accent (WhatsApp green). Tier colours are
+       semantic state only, never decoration.
+     - No side-stripes, no gradient text, no ghost-cards. Crisp
+       1px borders; elevation reserved for floating surfaces.
+     - Emoji appear only inside WhatsApp message content; every
+       structural icon is an inline SVG. Full reduced-motion path.
+     ============================================================ */
+
+  :root {
+    /* surfaces */
+    --bg:            #0a111e;
+    --surface:       #101a2c;   /* content panels */
+    --surface-2:     #16223a;   /* nested fields, toolbar */
+    --panel-nav:     #0d1626;   /* second neutral layer: header/sidebar */
+    --line:          #25344f;
+    --line-soft:     #1c2942;
+
+    /* ink (contrast-checked against --bg / --surface) */
+    --text:          #eef2fb;
+    --text-dim:      #aab6cf;   /* ≥7:1 on surfaces */
+    --text-faint:    #8190ac;   /* ≥4.5:1, used for meta only */
+
+    /* accent — committed */
+    --brand:         #25d366;
+    --brand-deep:    #0f9d52;
+    --brand-ink:     #03210f;
+
+    /* semantic tier states */
+    --hot:           #ff5d6c;
+    --warm:          #ffb454;
+    --cold:          #5cc0ff;
+    --support:       #b794ff;
+    --info:          #6ea8ff;
+
+    /* radii — one scale (cards 14, fields 10, pill 999) */
+    --r-card: 14px;
+    --r-field: 10px;
+    --r-pill: 999px;
+
+    /* elevation — only for floating surfaces, never static panels */
+    --shadow-pop:  0 18px 50px -24px rgba(0,0,0,.85);
+    --shadow-lift: 0 10px 26px -16px rgba(0,0,0,.7);
+
+    /* motion */
+    --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+    --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-out-expo:  cubic-bezier(0.16, 1, 0.3, 1);
+    --t-fast: 120ms;
+    --t-base: 200ms;
+    --t-slow: 320ms;
+
+    /* z-index scale (semantic, never arbitrary) */
+    --z-sticky:  100;
+    --z-overlay: 200;
+    --z-drawer:  210;
+    --z-toast:   300;
+
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  /* a single, consistent focus treatment everywhere */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  button { font: inherit; color: inherit; }
+
+  .icon { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 18px; }
+
+  /* ---------- Header ---------- */
+  header.top {
+    position: sticky; top: 0; z-index: var(--z-sticky);
+    background: var(--panel-nav);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .top-inner { display: flex; align-items: center; gap: 13px; padding: 13px 18px; max-width: 1280px; margin: 0 auto; }
+  .logo {
+    width: 38px; height: 38px; border-radius: 11px; flex: none;
+    background: var(--brand); color: var(--brand-ink);
+    display: grid; place-items: center;
+  }
+  .logo .icon { width: 21px; height: 21px; fill: currentColor; stroke: none; }
+  .brand-name { font-size: 16px; font-weight: 700; letter-spacing: -.2px; }
+  .brand-sub  { font-size: 11.5px; color: var(--text-dim); margin-top: -1px; }
+  .top-spacer { flex: 1; }
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 600; color: var(--brand);
+    background: rgba(37,211,102,.10); border: 1px solid rgba(37,211,102,.30);
+    padding: 6px 12px; border-radius: var(--r-pill);
+  }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 0 rgba(37,211,102,.6); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(37,211,102,.5)} 70%{box-shadow:0 0 0 8px rgba(37,211,102,0)} 100%{box-shadow:0 0 0 0 rgba(37,211,102,0)} }
+  .clock { font-size: 12.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .clock b { color: var(--text); font-weight: 600; }
+
+  /* ---------- Metric strip (one divided panel, not 5 cards) ---------- */
+  .metrics {
+    margin-top: 22px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    display: grid;
+    grid-template-columns: 1.35fr 1fr 1fr 1fr 1fr;
+    overflow: hidden;
+  }
+  .metric { padding: 17px 18px; border-left: 1px solid var(--line-soft); }
+  .metric:first-child { border-left: 0; }
+  .metric .label { font-size: 12px; color: var(--text-dim); font-weight: 600; }
+  .metric .val { font-size: 30px; font-weight: 800; letter-spacing: -1px; margin-top: 7px; font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 4px; transition: color var(--t-base) var(--ease-out-quart); }
+  .metric .val small { font-size: 14px; font-weight: 600; color: var(--text-dim); }
+  .metric .delta { font-size: 11.5px; margin-top: 5px; color: var(--text-faint); }
+  .metric.hero { background: rgba(37,211,102,.06); }
+  .metric.hero .val { color: var(--brand); font-size: 38px; }
+  .metric.hero .label { color: var(--brand); }
+  .flash { animation: flash 1s var(--ease-out-quart); }
+  @keyframes flash { 0%{ transform: translateY(-3px); opacity:.4 } 100%{ transform: translateY(0); opacity:1 } }
+
+  /* ---------- Value-prop comparison ---------- */
+  .vp {
+    margin-top: 16px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-card); padding: 22px 24px;
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 22px;
+  }
+  .vp-side { display: flex; flex-direction: column; }
+  .vp-side .cap { font-size: 12.5px; color: var(--text-dim); font-weight: 600; }
+  .vp-side .big { font-size: 46px; font-weight: 800; letter-spacing: -2px; line-height: 1; margin-top: 8px; }
+  .vp-side.agent .big { color: var(--brand); }
+  .vp-side.manual .big { color: var(--hot); }
+  .vp-side .big .unit { font-size: 16px; font-weight: 600; color: var(--text-dim); letter-spacing: 0; margin-left: 3px; }
+  .vp-side .note { font-size: 12.5px; color: var(--text-faint); margin-top: 6px; }
+  .vp-side.manual { text-align: right; align-items: flex-end; }
+  .vp-mid { text-align: center; color: var(--text-faint); }
+  .vp-mid .arrow { display: inline-flex; color: var(--brand); }
+  .vp-mid .arrow .icon { width: 26px; height: 26px; }
+  .vp-mid .mult { font-size: 14px; font-weight: 700; color: var(--text); margin-top: 4px; white-space: nowrap; }
+  .vp-bar { grid-column: 1 / -1; height: 10px; border-radius: var(--r-pill); background: rgba(255,93,108,.16); position: relative; overflow: hidden; }
+  .vp-bar i { position: absolute; inset: 0 auto 0 0; width: 2%; background: var(--brand); border-radius: var(--r-pill); }
+  .vp-bar .tickA, .vp-bar .tickB { position: absolute; top: 50%; transform: translateY(-50%); font-size: 10px; font-weight: 700; }
+  .vp-bar .tickA { left: 8px; color: var(--brand-ink); }
+  .vp-bar .tickB { right: 10px; color: var(--hot); }
+  .vp-foot { grid-column: 1 / -1; font-size: 12px; color: var(--text-faint); }
+
+  /* ---------- Main grid ---------- */
+  .grid { display: grid; gap: 18px; margin-top: 18px; grid-template-columns: 1.7fr 1fr; align-items: start; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 15px 17px; border-bottom: 1px solid var(--line-soft); }
+  .card-head h2 { font-size: 15px; font-weight: 700; letter-spacing: -.1px; }
+  .card-head .count { font-size: 12px; color: var(--text-dim); background: var(--surface-2); padding: 3px 10px; border-radius: var(--r-pill); border: 1px solid var(--line-soft); font-variant-numeric: tabular-nums; }
+
+  /* ---------- Toolbar ---------- */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; padding: 12px 17px; border-bottom: 1px solid var(--line-soft); }
+  .btn-sim {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 44px;
+    font-size: 13.5px; font-weight: 700; color: var(--brand-ink);
+    background: var(--brand); border: none; border-radius: var(--r-field);
+    padding: 0 16px; cursor: pointer;
+    transition: transform var(--t-fast) var(--ease-out-quart), background var(--t-fast) var(--ease-out-quart);
+  }
+  .btn-sim:hover { background: #2bdc6e; }
+  .btn-sim:active { transform: scale(.97); }
+  .btn-sim:disabled { opacity: .55; cursor: default; transform: none; }
+  .btn-sim .icon { width: 16px; height: 16px; fill: currentColor; stroke: none; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; min-height: 36px;
+    font-size: 12.5px; font-weight: 600; color: var(--text-dim);
+    background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: var(--r-pill);
+    padding: 0 13px; cursor: pointer; transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+  }
+  .chip:hover { color: var(--text); border-color: var(--line); }
+  .chip[aria-pressed="true"] { color: var(--text); border-color: transparent; background: rgba(110,168,255,.18); }
+  .chip[aria-pressed="true"][data-tier="hot"]     { background: rgba(255,93,108,.18); }
+  .chip[aria-pressed="true"][data-tier="warm"]    { background: rgba(255,180,84,.18); }
+  .chip[aria-pressed="true"][data-tier="cold"]    { background: rgba(92,192,255,.18); }
+  .chip[aria-pressed="true"][data-tier="support"] { background: rgba(183,148,255,.18); }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .dot.hot{background:var(--hot)} .dot.warm{background:var(--warm)} .dot.cold{background:var(--cold)} .dot.support{background:var(--support)}
+
+  /* ---------- Feed ---------- */
+  .feed { max-height: 730px; overflow-y: auto; padding: 11px 13px 15px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  .feed::-webkit-scrollbar { width: 8px; }
+  .feed::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+
+  .lead {
+    width: 100%; text-align: left; display: block;
+    background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: var(--r-field);
+    padding: 13px 14px; margin: 8px 4px; cursor: pointer;
+    transition: border-color var(--t-fast) var(--ease-out-quart), transform var(--t-fast) var(--ease-out-quart);
+  }
+  .lead:hover { border-color: var(--line); transform: translateY(-1px); }
+  .lead:active { transform: translateY(0) scale(.995); }
+  /* hot flag: full-border tint + background tint + flag pill — no side stripe */
+  .lead.hot { border-color: rgba(255,93,108,.42); background: linear-gradient(180deg, rgba(255,93,108,.07), var(--surface-2) 60%); }
+  .lead.enter { animation: leadIn .5s var(--ease-out-quint) both; animation-delay: calc(var(--i, 0) * 45ms); }
+  @keyframes leadIn { from { opacity:0; transform: translateY(-12px); } to { opacity:1; transform: translateY(0); } }
+
+  .lead-top { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 34px; height: 34px; border-radius: 10px; flex: none; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: var(--brand-ink); }
+  .lead-id { min-width: 0; flex: 1; }
+  .lead-name { font-size: 14.5px; font-weight: 700; letter-spacing: -.1px; }
+  .lead-meta { font-size: 11.5px; color: var(--text-faint); margin-top: 1px; display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+  .lead-meta span { display: inline-flex; align-items: center; gap: 4px; }
+  .lead-meta .icon { width: 12px; height: 12px; }
+  .tier-tag { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 3px 9px; border-radius: var(--r-pill); flex: none; display: inline-flex; align-items: center; gap: 4px; }
+  .tier-tag .icon { width: 11px; height: 11px; fill: currentColor; stroke: none; }
+  .tier-hot     { background: rgba(255,93,108,.18); color: #ff97a0; }
+  .tier-warm    { background: rgba(255,180,84,.18); color: #ffc77a; }
+  .tier-cold    { background: rgba(92,192,255,.18); color: #93d6ff; }
+  .tier-support { background: rgba(183,148,255,.18); color: #cbb4ff; }
+
+  .chat { margin-top: 11px; display: flex; flex-direction: column; gap: 6px; }
+  .bubble { font-size: 13px; padding: 8px 11px; border-radius: 12px; max-width: 88%; line-height: 1.45; }
+  .bubble.in  { background: #20304c; color: var(--text); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .bubble.out { background: #11432a; color: #daffe9; align-self: flex-end; border-bottom-right-radius: 4px; border: 1px solid rgba(37,211,102,.28); }
+  .bubble .who { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; opacity: .75; margin-bottom: 2px; display: inline-flex; align-items: center; gap: 4px; }
+  .bubble.out .who { color: var(--brand); }
+  .bubble .who .icon { width: 11px; height: 11px; fill: currentColor; stroke: none; }
+
+  .lead-foot { display: flex; align-items: center; gap: 12px; margin-top: 11px; flex-wrap: wrap; }
+  .score-wrap { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 140px; }
+  .score-wrap .k { font-size: 10.5px; color: var(--text-faint); font-weight: 700; }
+  .score-bar { flex: 1; height: 6px; border-radius: var(--r-pill); background: var(--line-soft); overflow: hidden; min-width: 56px; }
+  .score-bar i { display: block; height: 100%; border-radius: var(--r-pill); }
+  .score-num { font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 24px; text-align: right; }
+  .resp { font-size: 11.5px; color: var(--brand); font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .resp .icon { width: 12px; height: 12px; }
+  .notified { font-size: 11px; color: var(--text-faint); display: inline-flex; align-items: center; gap: 4px; }
+  .notified.on { color: var(--info); }
+  .notified .icon { width: 12px; height: 12px; }
+
+  /* processing card */
+  .lead.processing { border-color: rgba(37,211,102,.42); cursor: default; }
+  .proc-steps { display: flex; align-items: center; gap: 9px; margin-top: 11px; font-size: 11.5px; color: var(--text-dim); flex-wrap: wrap; }
+  .proc-step { display: inline-flex; align-items: center; gap: 6px; opacity: .35; transition: opacity var(--t-base) var(--ease-out-quart); }
+  .proc-step.done { opacity: 1; color: var(--brand); }
+  .proc-step.active { opacity: 1; color: var(--text); }
+  .proc-step .pc { width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; display: grid; place-items: center; flex: none; }
+  .proc-step.done .pc { background: var(--brand); border-color: var(--brand); }
+  .proc-step.done .pc .icon { width: 9px; height: 9px; color: var(--brand-ink); stroke-width: 3.2; }
+  .proc-step.active .pc { border-color: var(--brand); border-top-color: transparent; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .typing { display: inline-flex; gap: 3px; align-items: center; padding: 2px 0; }
+  .typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--brand); animation: bob 1s infinite; }
+  .typing span:nth-child(2){ animation-delay:.15s } .typing span:nth-child(3){ animation-delay:.3s }
+  @keyframes bob { 0%,60%,100%{ transform: translateY(0); opacity:.4 } 30%{ transform: translateY(-4px); opacity:1 } }
+
+  .feed-empty { text-align: center; color: var(--text-faint); padding: 44px 16px; font-size: 13px; }
+
+  /* ---------- Pipeline ---------- */
+  .pipe-body { padding: 16px 17px; }
+  .pipe-row { display: flex; align-items: center; gap: 10px; margin-bottom: 13px; }
+  .pipe-row:last-child { margin-bottom: 0; }
+  .pipe-label { font-size: 12.5px; font-weight: 700; width: 84px; flex: none; display: inline-flex; align-items: center; gap: 7px; }
+  .pipe-track { flex: 1; height: 22px; border-radius: 7px; background: var(--surface-2); overflow: hidden; border: 1px solid var(--line-soft); }
+  .pipe-fill { height: 100%; border-radius: 6px; transition: width .6s var(--ease-out-quart); display: flex; align-items: center; padding-left: 9px; font-size: 11px; font-weight: 800; color: var(--brand-ink); min-width: 2px; }
+  .pipe-fill.hot{background:var(--hot)} .pipe-fill.warm{background:var(--warm)} .pipe-fill.cold{background:var(--cold)} .pipe-fill.support{background:var(--support)}
+  .pipe-count { font-size: 13px; font-weight: 800; width: 26px; text-align: right; flex: none; font-variant-numeric: tabular-nums; }
+
+  .pipe-donut { display: flex; align-items: center; gap: 18px; padding: 18px 17px 8px; border-top: 1px solid var(--line-soft); }
+  .donut { width: 104px; height: 104px; border-radius: 50%; flex: none; position: relative; transition: background .6s var(--ease-out-quart); }
+  .donut::after { content: ""; position: absolute; inset: 16px; border-radius: 50%; background: var(--surface); }
+  .donut-mid { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; z-index: 1; }
+  .donut-mid b { font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .donut-mid span { font-size: 10px; color: var(--text-dim); display: block; }
+  .legend { font-size: 12.5px; flex: 1; }
+  .legend div { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--text-dim); }
+  .legend div:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); margin-left: auto; font-variant-numeric: tabular-nums; }
+  .legend .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+
+  /* ---------- Detail drawer ---------- */
+  .overlay { position: fixed; inset: 0; background: rgba(4,8,16,.62); opacity: 0; pointer-events: none; transition: opacity var(--t-slow) var(--ease-out-quart); z-index: var(--z-overlay); }
+  .overlay.open { opacity: 1; pointer-events: auto; }
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 420px; max-width: 92vw; z-index: var(--z-drawer);
+    background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow-pop);
+    transform: translateX(100%); transition: transform var(--t-slow) var(--ease-out-expo);
+    display: flex; flex-direction: column;
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer-head { padding: 18px; border-bottom: 1px solid var(--line-soft); display: flex; align-items: flex-start; gap: 12px; }
+  .drawer-head .avatar { width: 44px; height: 44px; border-radius: 12px; font-size: 16px; }
+  .drawer-head h2 { font-size: 18px; font-weight: 800; letter-spacing: -.3px; }
+  .drawer-head .sub { font-size: 12px; color: var(--text-dim); margin-top: 3px; display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+  .drawer-head .sub span { display: inline-flex; align-items: center; gap: 4px; }
+  .drawer-head .sub .icon { width: 12px; height: 12px; }
+  .x-btn { margin-left: auto; background: var(--surface-2); border: 1px solid var(--line-soft); color: var(--text-dim); width: 36px; height: 36px; border-radius: var(--r-field); cursor: pointer; display: grid; place-items: center; flex: none; transition: color var(--t-fast), border-color var(--t-fast); }
+  .x-btn:hover { color: var(--text); border-color: var(--line); }
+  .x-btn .icon { width: 16px; height: 16px; }
+  .drawer-body { padding: 16px 18px 26px; overflow-y: auto; flex: 1; }
+
+  .d-score { display: flex; align-items: center; gap: 14px; background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: var(--r-field); padding: 14px; margin-bottom: 14px; }
+  .ring { width: 64px; height: 64px; border-radius: 50%; flex: none; display: grid; place-items: center; position: relative; }
+  .ring::after { content: ""; position: absolute; inset: 7px; background: var(--surface-2); border-radius: 50%; }
+  .ring b { position: relative; z-index: 1; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .d-score .meta { display: flex; flex-direction: column; gap: 6px; }
+  .d-score .meta .line { font-size: 12.5px; color: var(--text-dim); }
+  .d-score .meta .line b { color: var(--brand); }
+
+  .d-chat { background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: var(--r-field); padding: 12px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
+
+  .qual-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .qual { background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: var(--r-field); padding: 11px 12px; }
+  .qual.full { grid-column: 1 / -1; }
+  .qual .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-faint); font-weight: 700; }
+  .qual .v { font-size: 14px; font-weight: 700; margin-top: 3px; letter-spacing: -.1px; }
+  .qual .v.sm { font-size: 13px; font-weight: 600; line-height: 1.45; }
+
+  .note-box { background: rgba(110,168,255,.07); border: 1px solid rgba(110,168,255,.22); border-radius: var(--r-field); padding: 12px 13px; margin-bottom: 14px; }
+  .note-box .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--info); font-weight: 700; margin-bottom: 5px; display: inline-flex; align-items: center; gap: 5px; }
+  .note-box .k .icon { width: 13px; height: 13px; }
+  .note-box .v { font-size: 13px; color: var(--text); line-height: 1.5; }
+
+  .owner-status { display: flex; align-items: center; gap: 11px; padding: 12px 13px; border-radius: var(--r-field); font-size: 13px; font-weight: 600; }
+  .owner-status.on { background: rgba(37,211,102,.10); border: 1px solid rgba(37,211,102,.30); color: #bff5d4; }
+  .owner-status.off { background: rgba(110,168,255,.08); border: 1px solid rgba(110,168,255,.22); color: #cfe0ff; }
+  .owner-status .ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex: none; }
+  .owner-status.on .ic { background: rgba(37,211,102,.2); }
+  .owner-status.off .ic { background: rgba(110,168,255,.18); }
+  .owner-status .ic .icon { width: 16px; height: 16px; }
+  .owner-status small { display: block; font-weight: 500; color: var(--text-dim); font-size: 11px; margin-top: 1px; }
+
+  footer { color: var(--text-faint); font-size: 11.5px; margin-top: 26px; line-height: 1.6; }
+  footer b { color: var(--text-dim); }
+  footer code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-size: 11px; }
+
+  /* toast */
+  .toast-zone { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: var(--z-toast); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: max-content; max-width: 92vw; }
+  .toast { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-field); padding: 11px 15px; font-size: 13px; box-shadow: var(--shadow-pop); display: flex; align-items: center; gap: 9px; animation: toastIn var(--t-slow) var(--ease-out-expo); }
+  .toast .icon { width: 16px; height: 16px; color: var(--brand); }
+  .toast b { color: var(--brand); }
+  @keyframes toastIn { from { opacity:0; transform: translateY(10px) } to { opacity:1; transform: translateY(0) } }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 980px) {
+    .metrics { grid-template-columns: repeat(2, 1fr); }
+    .metric { border-top: 1px solid var(--line-soft); }
+    .metric:nth-child(1), .metric:nth-child(2) { border-top: 0; }
+    .metric:nth-child(odd) { border-left: 0; }
+    .grid { grid-template-columns: 1fr; }
+    .vp { grid-template-columns: 1fr auto 1fr; }
+    .feed { max-height: none; }
+  }
+  @media (max-width: 560px) {
+    .wrap { padding: 0 12px; }
+    .top-inner { padding: 12px; }
+    .clock { display: none; }
+    .brand-sub { display: none; }
+    .metrics { grid-template-columns: 1fr 1fr; }
+    .metric.hero { grid-column: 1 / -1; border-left: 0; border-top: 0; }
+    .metric:nth-child(2), .metric:nth-child(3) { border-top: 1px solid var(--line-soft); }
+    .metric .val { font-size: 26px; } .metric.hero .val { font-size: 34px; }
+    .vp { grid-template-columns: 1fr; text-align: center; }
+    .vp-side, .vp-side.manual { align-items: center; text-align: center; }
+    .vp-mid .arrow { transform: rotate(90deg); }
+    .vp-side .big { font-size: 38px; }
+    .filters { width: 100%; }
+    .bubble { max-width: 92%; }
+    .drawer { width: 100%; }
+  }
+
+  /* ---------- Reduced motion (accessibility, non-optional) ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+    .live-dot { animation: none; }
+    .proc-step.active .pc { animation: none; border-top-color: currentColor; }
+    .typing span { animation: none; opacity: .8; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Inline SVG icon sprite (structural icons; emoji reserved for chat content) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-whatsapp" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 12 2Zm4.5 12.3c-.25-.13-1.47-.72-1.7-.8-.23-.08-.4-.13-.56.13-.17.25-.64.8-.79.97-.14.17-.29.19-.54.06-.25-.13-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.38-1.72-.15-.25-.02-.39.11-.51.11-.11.25-.29.38-.43.12-.15.16-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.56-1.35-.77-1.85-.2-.48-.41-.42-.56-.42h-.48c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1 0 1.24.9 2.43 1.03 2.6.13.17 1.77 2.7 4.3 3.79.6.26 1.07.41 1.43.53.6.19 1.15.16 1.58.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.07.15-1.18-.06-.11-.23-.17-.48-.29Z"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 8V5"/><circle cx="12" cy="4" r="1.4"/><path d="M9 13h.01M15 13h.01"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M9 4h6a2 2 0 0 1 2 2v0h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h1"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M8 12h8M8 16h5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4v16l13-8L6 4Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5 9 17.5 20 6.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-fire" viewBox="0 0 24 24"><path d="M12 2s4 4 4 8a4 4 0 0 1-8 0c0-1 .5-2 .5-2S6 9 6 13a6 6 0 0 0 12 0c0-5-6-11-6-11Z"/></symbol>
+</svg>
+
+<header class="top">
+  <div class="top-inner">
+    <span class="logo"><svg class="icon"><use href="#i-whatsapp"/></svg></span>
+    <div>
+      <div class="brand-name">ReplyDesk</div>
+      <div class="brand-sub">WhatsApp Lead Response Agent</div>
+    </div>
+    <div class="top-spacer"></div>
+    <span class="live-pill"><span class="live-dot"></span> Agent live</span>
+    <span class="clock">Today · <b id="clock">—</b></span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- METRIC STRIP -->
+  <section class="metrics" aria-label="Today's agent metrics">
+    <div class="metric hero">
+      <div class="label">Avg response time</div>
+      <div class="val" id="m-resp">—<small>sec</small></div>
+      <div class="delta">Across every lead, day &amp; night</div>
+    </div>
+    <div class="metric">
+      <div class="label">Leads today</div>
+      <div class="val" id="m-total">—</div>
+      <div class="delta" id="m-total-d">—</div>
+    </div>
+    <div class="metric">
+      <div class="label">Hot leads</div>
+      <div class="val" id="m-hot" style="color:var(--hot)">—</div>
+      <div class="delta">Routed to owner instantly</div>
+    </div>
+    <div class="metric">
+      <div class="label">After-hours saved</div>
+      <div class="val" id="m-night">—</div>
+      <div class="delta">Answered while you slept</div>
+    </div>
+    <div class="metric">
+      <div class="label">Auto-handled</div>
+      <div class="val" id="m-auto">—<small>%</small></div>
+      <div class="delta">No human touched these</div>
+    </div>
+  </section>
+
+  <!-- VALUE PROP -->
+  <section class="vp" aria-label="Response time comparison">
+    <div class="vp-side agent">
+      <span class="cap">ReplyDesk agent</span>
+      <span class="big" id="vp-agent">8<span class="unit">sec</span></span>
+      <span class="note">first reply, every single time</span>
+    </div>
+    <div class="vp-mid">
+      <span class="arrow"><svg class="icon"><use href="#i-arrow"/></svg></span>
+      <div class="mult" id="vp-mult">~13,000× faster</div>
+    </div>
+    <div class="vp-side manual">
+      <span class="cap">Typical manual reply</span>
+      <span class="big">29<span class="unit">hrs</span></span>
+      <span class="note">average SMB lead response</span>
+    </div>
+    <div class="vp-bar"><i></i><span class="tickA">now</span><span class="tickB">29 hrs later</span></div>
+    <div class="vp-foot">78% of customers buy from the business that responds first — ReplyDesk makes sure that's always you.</div>
+  </section>
+
+  <!-- MAIN GRID -->
+  <div class="grid">
+
+    <!-- FEED -->
+    <section class="card">
+      <div class="card-head">
+        <h2>Live lead feed</h2>
+        <span class="count" id="feed-count">0 leads</span>
+      </div>
+      <div class="toolbar">
+        <button class="btn-sim" id="simBtn">
+          <svg class="icon"><use href="#i-play"/></svg>
+          Simulate incoming lead
+        </button>
+        <div class="filters" id="filters" role="group" aria-label="Filter leads by tier">
+          <button class="chip" data-tier="all" aria-pressed="true">All</button>
+          <button class="chip" data-tier="hot" aria-pressed="false"><span class="dot hot"></span>Hot</button>
+          <button class="chip" data-tier="warm" aria-pressed="false"><span class="dot warm"></span>Warm</button>
+          <button class="chip" data-tier="cold" aria-pressed="false"><span class="dot cold"></span>Cold</button>
+          <button class="chip" data-tier="support" aria-pressed="false"><span class="dot support"></span>Support</button>
+        </div>
+      </div>
+      <div class="feed" id="feed"></div>
+    </section>
+
+    <!-- PIPELINE -->
+    <section class="card">
+      <div class="card-head"><h2>Pipeline breakdown</h2></div>
+      <div class="pipe-body" id="pipe-bars"></div>
+      <div class="pipe-donut">
+        <div class="donut" id="donut" role="img" aria-label="Lead distribution by tier">
+          <div class="donut-mid"><b id="donut-total">0</b><span>leads</span></div>
+        </div>
+        <div class="legend" id="legend"></div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <b>ReplyDesk</b> — front-end demo. Feed data is mocked and shaped 1:1 with the n8n workflow output
+    (<code>reply</code>, <code>intent</code>, <code>lead_score</code>, qualification fields), ready to wire to a live WhatsApp webhook.
+  </footer>
+</main>
+
+<!-- DETAIL DRAWER -->
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Lead detail"></aside>
+
+<div class="toast-zone" id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<script>
+/* ===========================================================================
+   DATA MODEL — each record matches the n8n workflow output shape exactly.
+   { id, name, phone (masked), city, message, reply, intent (hot|warm|cold|
+     support), lead_score (0-100), need, budget, timeline, response_time
+     (seconds), timestamp (ms epoch), owner_notified (bool), note }
+   =========================================================================== */
+
+const AVATAR_COLORS = [
+  ['#25d366','#0f9d52'], ['#6ea8ff','#3a6fd8'], ['#ffb454','#e8851f'],
+  ['#ff7a93','#e84d6e'], ['#b794ff','#8b5fe0'], ['#5cc0ff','#2a9fe0'],
+  ['#ffd166','#e0a92e'], ['#4dd4c4','#1fa392']
+];
+const TIER_LABEL = { hot:'Hot lead', warm:'Warm lead', cold:'Cold lead', support:'Support' };
+const TIER_COLOR = { hot:'#ff5d6c', warm:'#ffb454', cold:'#5cc0ff', support:'#b794ff' };
+
+function initials(name){ return name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
+function avatarFor(name){ let h=0; for(const c of name) h=(h*31+c.charCodeAt(0))>>>0; return AVATAR_COLORS[h % AVATAR_COLORS.length]; }
+function scoreColor(s){ if(s>=75) return '#25d366'; if(s>=50) return '#ffb454'; if(s>=30) return '#5cc0ff'; return '#8595b3'; }
+function icon(id, cls){ return `<svg class="icon ${cls||''}"><use href="#${id}"/></svg>`; }
+
+const HOUR = 3600*1000, MIN = 60*1000;
+const now = Date.now();
+
+let LEADS = [
+  { id:1001, name:'Rohit Sharma', phone:'+91 98•••• 21', city:'Pune',
+    message:'Hi, abhi aapka ad dekha. 3 BHK chahiye Kharadi area me, ready possession. Price kya range hai?',
+    reply:'Hi Rohit! 👋 Kharadi me ready-possession 3 BHK ₹1.1–1.4 Cr range me available hai. Aapke liye 3 best options shortlist kar deta hoon — kya kal evening site visit comfortable rahega?',
+    intent:'hot', lead_score:91, need:'3 BHK ready-possession flat', budget:'₹1.1–1.4 Cr', timeline:'Within 30 days',
+    response_time:7, timestamp: now-4*MIN, owner_notified:true,
+    note:'High intent — asked price + ready possession + specific area. Strong fit for Kharadi inventory. Owner pinged for site-visit booking.' },
+  { id:1002, name:'Anjali Verma', phone:'+91 90•••• 88', city:'Bengaluru',
+    message:'Do you offer EMI option? Budget thoda tight hai but interested in the premium plan.',
+    reply:'Yes Anjali! Premium plan ₹8,000/mo se EMI pe available hai (no-cost EMI 6 months). Main aapko plan comparison bhej deta hoon — premium me kaunsa feature sabse zaroori hai aapke liye?',
+    intent:'warm', lead_score:64, need:'Premium subscription (EMI)', budget:'₹40–50k', timeline:'1–2 months',
+    response_time:9, timestamp: now-22*MIN, owner_notified:false,
+    note:'Price-sensitive but engaged. EMI offered, awaiting feature priority. Nurture with comparison sheet.' },
+  { id:1003, name:'Mohammed Faizan', phone:'+91 99•••• 34', city:'Hyderabad',
+    message:'bhai bulk order ka rate batao, 500 pieces chahiye custom printed. Diwali tak deliver ho jayega?',
+    reply:'Bilkul Faizan bhai! 500 pcs custom print ka bulk rate ₹142/pc (15% off list). Diwali se 1 week pehle delivery guaranteed agar artwork is week confirm ho jaye. Design ready hai ya hum banaye?',
+    intent:'hot', lead_score:88, need:'500 custom-printed units', budget:'₹70k+', timeline:'Before Diwali',
+    response_time:6, timestamp: now-1.4*HOUR, owner_notified:true,
+    note:'Bulk B2B order, clear deadline + quantity. Pricing + timeline locked. Needs artwork confirmation. Owner notified for quote approval.' },
+  { id:1004, name:'Priya Nair', phone:'+91 81•••• 07', city:'Kochi',
+    message:'Just browsing for now, what services do you provide?',
+    reply:'Hi Priya! 😊 We help businesses with branding, web design & social media. No rush at all — want me to send a quick 1-pager of what we do so you can browse whenever?',
+    intent:'cold', lead_score:24, need:'General info', budget:'Not stated', timeline:'Undecided',
+    response_time:8, timestamp: now-2.1*HOUR, owner_notified:false,
+    note:'Top-of-funnel browser, no need/budget yet. Sent overview. Tagged for newsletter drip.' },
+  { id:1005, name:'Karan Mehta', phone:'+91 97•••• 56', city:'Ahmedabad',
+    message:'My order #4471 abhi tak nahi aaya. 5 din ho gaye. Kab milega?',
+    reply:'Sorry for the wait Karan! 🙏 Order #4471 currently out-for-delivery hai, aaj 6 PM tak pahunch jayega. Aapko live tracking link bhej raha hoon. Kuch aur help chahiye?',
+    intent:'support', lead_score:18, need:'Order status #4471', budget:'—', timeline:'Immediate',
+    response_time:5, timestamp: now-3.2*HOUR, owner_notified:false,
+    note:'Existing customer, delivery-delay query. Auto-resolved with tracking link. No escalation needed.' },
+  { id:1006, name:'Sneha Reddy', phone:'+91 96•••• 12', city:'Chennai',
+    message:'Demo le sakte hain? We are a team of 12, looking to switch from spreadsheets.',
+    reply:'Absolutely Sneha! For a 12-person team our Growth plan fits perfectly. I can set up a 20-min demo — kal 11 AM ya 4 PM, kaunsa slot better hai? Main calendar invite bhej deti hoon.',
+    intent:'hot', lead_score:83, need:'Team plan + demo (12 seats)', budget:'₹25–35k/mo', timeline:'This week',
+    response_time:8, timestamp: now-5.5*HOUR, owner_notified:true,
+    note:'Qualified SaaS lead — team size, current pain (spreadsheets), demo intent. Owner notified for demo call.' },
+  { id:1007, name:'Vikram Singh', phone:'+91 88•••• 90', city:'Jaipur',
+    message:'Rate list mil sakti hai? Interested but need to compare with others first.',
+    reply:'Sure Vikram! Full rate list bhej raha hoon. Hamari USP — 2-year warranty + free installation jo zyada players nahi dete. Koi specific product compare kar rahe ho?',
+    intent:'warm', lead_score:57, need:'Rate list / comparison', budget:'₹15–20k', timeline:'2–3 weeks',
+    response_time:10, timestamp: now-9*HOUR, owner_notified:false,
+    note:'Comparison-shopping, mid intent. Differentiators shared. Follow up in 3 days if no reply.' },
+  { id:1008, name:'Deepa Joshi', phone:'+91 70•••• 45', city:'Indore',
+    message:'Aapke yahan wedding catering hota hai? 300 guests, December date.',
+    reply:'Ji haan Deepa ji! December wedding, 300 guests ke liye humare 3 menu packages hain (₹650–₹1100/plate). Date available check kar leti hoon — December me kaunsi tareekh hai?',
+    intent:'hot', lead_score:79, need:'Wedding catering, 300 pax', budget:'₹2–3.3 L', timeline:'December',
+    response_time:7, timestamp: now-14*HOUR, owner_notified:true,
+    note:'After-hours lead (11:40 PM) captured & answered. High-value event booking, clear guest count + date. Owner notified next morning.' },
+  { id:1009, name:'Arjun Patel', phone:'+91 63•••• 28', city:'Surat',
+    message:'price?',
+    reply:'Hi Arjun! Happy to help 😊 Pricing depends on what you need — kaunsa product/service dekh rahe ho? Bata do toh exact quote bhej deta hoon.',
+    intent:'cold', lead_score:31, need:'Unspecified', budget:'Not stated', timeline:'Unknown',
+    response_time:6, timestamp: now-19*HOUR, owner_notified:false,
+    note:'One-word enquiry, low context. Agent asked a qualifying question to warm it up. Awaiting reply.' },
+  { id:1010, name:'Fatima Khan', phone:'+91 94•••• 73', city:'Lucknow',
+    message:'Subscription cancel karna hai, refund milega?',
+    reply:'Samajh gaya Fatima 🙏 Aapki subscription cancel kar sakte hain. Since aap first 7 days me ho, full refund eligible hai. Confirm karein toh main process kar doon? Feedback bhi share karein toh better kar payenge.',
+    intent:'support', lead_score:12, need:'Cancellation + refund', budget:'—', timeline:'Immediate',
+    response_time:9, timestamp: now-21*HOUR, owner_notified:false,
+    note:'Churn/refund request within trial window. Handled empathetically + feedback ask. Logged for retention review.' }
+];
+
+const SIM_POOL = [
+  { name:'Aditya Kulkarni', city:'Nagpur',
+    message:'Aapke pas interior design service hai? 2 BHK renovate karna hai, budget around 6 lakh.',
+    reply:'Hi Aditya! 🏠 Haan, 2 BHK full renovation hum karte hain — ₹6L me modular kitchen + 2 wardrobes + false ceiling easily cover ho jata hai. Kal site measurement ke liye team bhej doon?',
+    intent:'hot', lead_score:86, need:'2 BHK interior renovation', budget:'₹6 L', timeline:'Next month', owner_notified:true,
+    note:'Clear scope + budget + 2 BHK. Strong interiors lead. Site visit offered, owner notified.' },
+  { name:'Meera Iyer', city:'Coimbatore',
+    message:'Do you ship to Tamil Nadu? And what is the return policy?',
+    reply:'Yes Meera! Tamil Nadu pan-India shipping covered hai (2–4 days). 7-day easy return, no questions asked. Kuch specific product order karne ka soch rahe ho?',
+    intent:'warm', lead_score:58, need:'Shipping + return info', budget:'Not stated', timeline:'Considering', owner_notified:false,
+    note:'Pre-purchase logistics question. Engaged but no product locked. Nudge with bestsellers.' },
+  { name:'Sahil Gupta', city:'Delhi',
+    message:'URGENT bhai — event Saturday ko hai, sound system aur lighting same-day deliver kar sakte ho?',
+    reply:'Sahil bhai, koi tension nahi! 🎚️ Saturday event ke liye sound + lighting same-day setup possible hai. Venue address aur approx crowd size bata do, main abhi availability lock karta hoon.',
+    intent:'hot', lead_score:93, need:'Event sound + lighting (same-day)', budget:'₹30–45k', timeline:'This Saturday', owner_notified:true,
+    note:'Urgent high-intent event rental. Tight deadline, ready to book. Owner notified immediately for availability.' },
+  { name:'Lakshmi Menon', city:'Thiruvananthapuram',
+    message:'Just checking prices, will decide later maybe next year.',
+    reply:'No problem at all Lakshmi! 😊 Main aapko current price list bhej deti hoon taaki next year tak reference rahe. Koi question ho toh bas message kar dena!',
+    intent:'cold', lead_score:22, need:'Price reference', budget:'Not stated', timeline:'Next year', owner_notified:false,
+    note:'Long-horizon, low urgency. Sent price list, tagged for annual follow-up.' },
+  { name:'Imran Sheikh', city:'Bhopal',
+    message:'App login nahi ho raha, OTP nahi aa raha 10 min se. Help!',
+    reply:'Sorry for the trouble Imran! 🙏 OTP delay usually network ka hota hai. Main abhi resend kara raha hoon — agar 2 min me na aaye toh email login link bhej deta hoon. Number same hai +91...73?',
+    intent:'support', lead_score:15, need:'Login / OTP issue', budget:'—', timeline:'Immediate', owner_notified:false,
+    note:'Technical support — OTP delivery. Resend triggered + fallback offered. Auto-handled, no escalation.' },
+  { name:'Pooja Desai', city:'Vadodara',
+    message:'Hello, classes online hoti hain ya offline? Beginner hoon, weekend batch chahiye.',
+    reply:'Hi Pooja! 🎨 Dono available hain — beginner ke liye weekend offline batch (Sat–Sun, 10 AM) sabse popular hai. Next batch 5 din me start ho raha hai, 2 seats bachi hain. Hold karoon ek?',
+    intent:'warm', lead_score:68, need:'Weekend beginner batch', budget:'₹8–12k', timeline:'Next batch', owner_notified:false,
+    note:'Course enquiry, clear preference (weekend/beginner). Scarcity nudge applied. Likely converts with follow-up.' },
+  { name:'Rajesh Yadav', city:'Kanpur',
+    message:'Loan ke liye documents kya kya chahiye? Business hai mera, working capital chahiye 10 lakh.',
+    reply:'Namaste Rajesh ji! ₹10L working capital ke liye — GST returns (1 yr), 6-month bank statement, PAN & Aadhaar chahiye. Aapka business kitne saal purana hai? Eligibility 2 min me check kar deta hoon.',
+    intent:'hot', lead_score:81, need:'₹10L working capital loan', budget:'₹10 L', timeline:'Within 2 weeks', owner_notified:true,
+    note:'Qualified loan lead — amount + purpose clear. Doc checklist shared, eligibility check started. Owner notified.' },
+  { name:'Nikita Rao', city:'Visakhapatnam',
+    message:'Saw your reel! Bridal makeup trial book karna hai for Feb wedding.',
+    reply:'Yay, thank you Nikita! 💄 Feb wedding ke liye bridal trial perfect timing hai. Trial ₹3,500 (final booking pe adjust). Aapki wedding date aur venue city bata do, main slots share karti hoon!',
+    intent:'hot', lead_score:84, need:'Bridal makeup + trial', budget:'₹25–40k', timeline:'February', owner_notified:true,
+    note:'Inbound from reel, high intent bridal booking. Trial offered with date qualifier. Owner notified.' }
+];
+
+let simCounter = 0;
+let activeFilter = 'all';
+let lastFocused = null;
+
+const $ = sel => document.querySelector(sel);
+const feedEl = $('#feed');
+
+/* ---------------- RENDERING ---------------- */
+function timeAgo(ts){
+  const d = Math.floor((Date.now()-ts)/1000);
+  if(d < 60) return d+'s ago';
+  if(d < 3600) return Math.floor(d/60)+'m ago';
+  if(d < 86400) return Math.floor(d/3600)+'h ago';
+  return Math.floor(d/86400)+'d ago';
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function tierTagHTML(t){
+  const fire = t==='hot' ? icon('i-fire') : '';
+  return `<span class="tier-tag tier-${t}">${fire}${t}</span>`;
+}
+
+function leadCardHTML(L, i){
+  const [c1,c2] = avatarFor(L.name);
+  const sc = scoreColor(L.lead_score);
+  return `
+  <div class="lead enter ${L.intent==='hot'?'hot':''}" style="--i:${i}" data-id="${L.id}" data-tier="${L.intent}"
+       role="button" tabindex="0" aria-label="${esc(L.name)}, ${L.intent} lead, score ${L.lead_score}">
+    <div class="lead-top">
+      <span class="avatar" style="background:linear-gradient(150deg,${c1},${c2})">${initials(L.name)}</span>
+      <div class="lead-id">
+        <div class="lead-name">${esc(L.name)}</div>
+        <div class="lead-meta">
+          <span>${icon('i-pin')}${esc(L.city)}</span>
+          <span data-ts="${L.timestamp}" data-ago>${timeAgo(L.timestamp)}</span>
+        </div>
+      </div>
+      ${tierTagHTML(L.intent)}
+    </div>
+    <div class="chat">
+      <div class="bubble in"><span class="who">${icon('i-whatsapp')}Lead</span>${esc(L.message)}</div>
+      <div class="bubble out"><span class="who">${icon('i-bolt')}AI reply · ${L.response_time}s</span>${esc(L.reply)}</div>
+    </div>
+    <div class="lead-foot">
+      <div class="score-wrap">
+        <span class="k">SCORE</span>
+        <div class="score-bar"><i style="width:${L.lead_score}%;background:${sc}"></i></div>
+        <span class="score-num" style="color:${sc}">${L.lead_score}</span>
+      </div>
+      <span class="resp">${icon('i-clock')}${L.response_time}s</span>
+      <span class="notified ${L.owner_notified?'on':''}">${L.owner_notified ? icon('i-bell')+'Owner notified' : icon('i-bot')+'auto-handled'}</span>
+    </div>
+  </div>`;
+}
+
+function visibleLeads(){
+  return LEADS.filter(L => activeFilter==='all' || L.intent===activeFilter).sort((a,b)=> b.timestamp-a.timestamp);
+}
+
+function renderFeed(){
+  const list = visibleLeads();
+  feedEl.innerHTML = list.length
+    ? list.map((L,i)=> leadCardHTML(L, Math.min(i,11))).join('')
+    : `<div class="feed-empty">No ${activeFilter} leads in the feed yet.</div>`;
+  $('#feed-count').textContent = LEADS.length + (LEADS.length===1?' lead':' leads');
+}
+
+// update only the relative-time labels in place (avoids re-animating the feed)
+function refreshTimes(){
+  feedEl.querySelectorAll('[data-ago]').forEach(el=>{
+    const ts = Number(el.getAttribute('data-ts'));
+    if(ts) el.textContent = timeAgo(ts);
+  });
+}
+
+/* ---------------- METRICS ---------------- */
+function isAfterHours(ts){ const h = new Date(ts).getHours(); return h>=21 || h<8; }
+function computeMetrics(){
+  const total = LEADS.length;
+  const avg = total ? Math.round(LEADS.reduce((s,L)=>s+L.response_time,0)/total) : 0;
+  const hot = LEADS.filter(L=>L.intent==='hot').length;
+  const night = LEADS.filter(L=>isAfterHours(L.timestamp)).length;
+  const auto = total ? Math.round(LEADS.filter(L=>!L.owner_notified).length/total*100) : 0;
+  return { total, avg, hot, night, auto };
+}
+function setVal(id, value, flash){
+  const el = $(id); if(!el) return;
+  const target = el.querySelector('small') ? el.childNodes[0] : el;
+  if(target.textContent === String(value) && !flash){ return; }
+  target.textContent = value;
+  if(flash){ el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+}
+function renderMetrics(flash){
+  const m = computeMetrics();
+  setVal('#m-resp', m.avg, flash);
+  setVal('#m-total', m.total, flash);
+  setVal('#m-hot', m.hot, flash);
+  setVal('#m-night', m.night, flash);
+  setVal('#m-auto', m.auto, flash);
+  $('#m-total-d').textContent = m.hot + ' hot · ' + (m.total-m.hot) + ' nurture';
+}
+
+/* ---------------- PIPELINE ---------------- */
+function renderPipeline(){
+  const tiers = ['hot','warm','cold','support'];
+  const counts = {}; tiers.forEach(t => counts[t] = LEADS.filter(L=>L.intent===t).length);
+  const total = LEADS.length || 1;
+  const max = Math.max(1, ...tiers.map(t=>counts[t]));
+
+  $('#pipe-bars').innerHTML = tiers.map(t=>`
+    <div class="pipe-row">
+      <div class="pipe-label"><span class="dot ${t}"></span>${t[0].toUpperCase()+t.slice(1)}</div>
+      <div class="pipe-track"><div class="pipe-fill ${t}" style="width:${counts[t]/max*100}%">${counts[t]>0?counts[t]:''}</div></div>
+      <div class="pipe-count">${counts[t]}</div>
+    </div>`).join('');
+
+  let acc = 0; const segs = [];
+  tiers.forEach(t=>{ const pct = counts[t]/total*100; if(pct>0){ segs.push(`${TIER_COLOR[t]} ${acc}% ${acc+pct}%`); acc += pct; } });
+  if(!segs.length) segs.push('#25344f 0% 100%');
+  $('#donut').style.background = `conic-gradient(${segs.join(',')})`;
+  $('#donut-total').textContent = LEADS.length;
+
+  $('#legend').innerHTML = tiers.map(t=>`
+    <div><span class="sw" style="background:${TIER_COLOR[t]}"></span>${TIER_LABEL[t]}<b>${counts[t]}</b></div>`).join('');
+}
+
+/* ---------------- DETAIL DRAWER ---------------- */
+function openDrawer(id){
+  const L = LEADS.find(x=>x.id===id); if(!L) return;
+  const [c1,c2] = avatarFor(L.name);
+  const sc = scoreColor(L.lead_score);
+  lastFocused = document.activeElement;
+  const d = $('#drawer');
+  d.innerHTML = `
+    <div class="drawer-head">
+      <span class="avatar" style="background:linear-gradient(150deg,${c1},${c2})">${initials(L.name)}</span>
+      <div>
+        <h2>${esc(L.name)}</h2>
+        <div class="sub">
+          <span>${icon('i-pin')}${esc(L.city)}</span>
+          <span>${esc(L.phone)}</span>
+          <span data-ts="${L.timestamp}" data-ago>${timeAgo(L.timestamp)}</span>
+        </div>
+      </div>
+      <button class="x-btn" id="closeDrawer" aria-label="Close detail">${icon('i-x')}</button>
+    </div>
+    <div class="drawer-body">
+      <div class="d-score">
+        <div class="ring" style="background:conic-gradient(${sc} ${L.lead_score*3.6}deg, var(--line-soft) 0)">
+          <b style="color:${sc}">${L.lead_score}</b>
+        </div>
+        <div class="meta">
+          ${tierTagHTML(L.intent)}
+          <div class="line">Lead score ${L.lead_score}/100</div>
+          <div class="line">Replied in <b>${L.response_time}s</b></div>
+        </div>
+      </div>
+
+      <div class="d-chat">
+        <div class="bubble in"><span class="who">${icon('i-whatsapp')}Incoming WhatsApp</span>${esc(L.message)}</div>
+        <div class="bubble out"><span class="who">${icon('i-bolt')}AI reply · ${L.response_time}s</span>${esc(L.reply)}</div>
+      </div>
+
+      <div class="qual-grid">
+        <div class="qual full"><div class="k">Stated need</div><div class="v sm">${esc(L.need)}</div></div>
+        <div class="qual"><div class="k">Budget signal</div><div class="v">${esc(L.budget)}</div></div>
+        <div class="qual"><div class="k">Timeline</div><div class="v">${esc(L.timeline)}</div></div>
+      </div>
+
+      <div class="note-box">
+        <div class="k">${icon('i-note')}Internal qualification note</div>
+        <div class="v">${esc(L.note)}</div>
+      </div>
+
+      <div class="owner-status ${L.owner_notified?'on':'off'}">
+        <span class="ic">${L.owner_notified ? icon('i-bell') : icon('i-bot')}</span>
+        <div>${L.owner_notified ? 'Owner notified' : 'Auto-handled by agent'}
+          <small>${L.owner_notified ? 'Routed for human follow-up — high value or time-sensitive' : 'No human needed — agent closed the loop'}</small>
+        </div>
+      </div>
+    </div>`;
+  d.classList.add('open'); d.setAttribute('aria-hidden','false');
+  $('#overlay').classList.add('open');
+  const closeBtn = $('#closeDrawer');
+  closeBtn.addEventListener('click', closeDrawer);
+  closeBtn.focus();
+}
+function closeDrawer(){
+  const d = $('#drawer');
+  if(!d.classList.contains('open')) return;
+  d.classList.remove('open'); d.setAttribute('aria-hidden','true');
+  $('#overlay').classList.remove('open');
+  if(lastFocused && lastFocused.focus) lastFocused.focus();
+}
+
+/* ---------------- TOAST ---------------- */
+function toast(msg){
+  const z = $('#toasts');
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.innerHTML = icon('i-bolt') + `<span>${msg}</span>`;
+  z.appendChild(t);
+  setTimeout(()=>{ t.style.transition='opacity .35s, transform .35s'; t.style.opacity='0'; t.style.transform='translateY(8px)'; }, 3400);
+  setTimeout(()=> t.remove(), 3800);
+}
+
+/* ---------------- SIMULATE INCOMING LEAD (demo centrepiece) ---------------- */
+function simulateLead(){
+  const btn = $('#simBtn');
+  btn.disabled = true;
+  const tpl = SIM_POOL[simCounter % SIM_POOL.length];
+  simCounter++;
+  const [c1,c2] = avatarFor(tpl.name);
+
+  if(activeFilter !== 'all' && activeFilter !== tpl.intent) setFilter('all');
+
+  const card = document.createElement('div');
+  card.className = 'lead processing enter';
+  card.style.setProperty('--i', 0);
+  card.innerHTML = `
+    <div class="lead-top">
+      <span class="avatar" style="background:linear-gradient(150deg,${c1},${c2})">${initials(tpl.name)}</span>
+      <div class="lead-id">
+        <div class="lead-name">${esc(tpl.name)}</div>
+        <div class="lead-meta"><span>${icon('i-pin')}${esc(tpl.city)}</span><span>just now</span></div>
+      </div>
+      <span class="tier-tag tier-${tpl.intent}" style="opacity:.55">incoming</span>
+    </div>
+    <div class="chat">
+      <div class="bubble in"><span class="who">${icon('i-whatsapp')}Lead</span>${esc(tpl.message)}</div>
+      <div class="bubble out" id="proc-reply"><span class="who">${icon('i-bolt')}AI agent</span><span class="typing"><span></span><span></span><span></span></span></div>
+    </div>
+    <div class="proc-steps">
+      <span class="proc-step"><span class="pc">${icon('i-check')}</span>Received</span>
+      <span class="proc-step"><span class="pc">${icon('i-check')}</span>AI thinking</span>
+      <span class="proc-step"><span class="pc">${icon('i-check')}</span>Replied</span>
+      <span class="proc-step"><span class="pc">${icon('i-check')}</span>Scored &amp; routed</span>
+    </div>`;
+  feedEl.prepend(card);
+  feedEl.scrollTop = 0;
+
+  const steps = card.querySelectorAll('.proc-step');
+  const setStep = i => steps.forEach((s,idx)=>{ s.classList.toggle('active', idx===i); s.classList.toggle('done', idx<i); });
+
+  setStep(0);
+  setTimeout(()=> setStep(1), 600);
+  setTimeout(()=> setStep(2), 1700);
+  setTimeout(()=>{
+    const rt = Math.floor(Math.random()*6)+5; // 5–10s
+    card._rt = rt;
+    card.querySelector('#proc-reply').innerHTML = `<span class="who">${icon('i-bolt')}AI reply · ${rt}s</span>${esc(tpl.reply)}`;
+    setStep(3);
+  }, 1750);
+  setTimeout(()=> steps.forEach(s=> s.classList.add('done')), 2700);
+
+  setTimeout(()=>{
+    const newLead = {
+      id: 2000 + simCounter,
+      name: tpl.name, city: tpl.city,
+      phone: '+91 9'+(Math.floor(Math.random()*9)+1)+'•••• '+(10+Math.floor(Math.random()*89)),
+      message: tpl.message, reply: tpl.reply, intent: tpl.intent, lead_score: tpl.lead_score,
+      need: tpl.need, budget: tpl.budget, timeline: tpl.timeline,
+      response_time: card._rt || 8, timestamp: Date.now(), owner_notified: tpl.owner_notified, note: tpl.note
+    };
+    LEADS.push(newLead);
+    renderFeed();
+    renderMetrics(true);
+    renderPipeline();
+    toast(`New <b>${esc(tpl.intent)}</b> lead — ${esc(tpl.name.split(' ')[0])} from ${esc(tpl.city)}, answered in <b>${newLead.response_time}s</b>`);
+    btn.disabled = false;
+  }, 3000);
+}
+
+/* ---------------- FILTERS ---------------- */
+function setFilter(tier){
+  activeFilter = tier;
+  document.querySelectorAll('#filters .chip').forEach(c=> c.setAttribute('aria-pressed', String(c.dataset.tier===tier)));
+  renderFeed();
+}
+
+/* ---------------- EVENTS ---------------- */
+$('#simBtn').addEventListener('click', simulateLead);
+$('#filters').addEventListener('click', e=>{ const chip = e.target.closest('.chip'); if(chip) setFilter(chip.dataset.tier); });
+
+function leadFromEvent(e){
+  const card = e.target.closest('.lead');
+  return (card && !card.classList.contains('processing')) ? card : null;
+}
+feedEl.addEventListener('click', e=>{ const c = leadFromEvent(e); if(c) openDrawer(parseInt(c.dataset.id,10)); });
+feedEl.addEventListener('keydown', e=>{
+  if(e.key!=='Enter' && e.key!==' ') return;
+  const c = leadFromEvent(e); if(c){ e.preventDefault(); openDrawer(parseInt(c.dataset.id,10)); }
+});
+$('#overlay').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeDrawer(); });
+
+/* ---------------- CLOCK + LIVE TIME ---------------- */
+function tickClock(){ $('#clock').textContent = new Date().toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit', second:'2-digit'}); }
+setInterval(tickClock, 1000); tickClock();
+setInterval(refreshTimes, 30000);
+
+/* ---------------- INIT ---------------- */
+renderFeed();
+renderMetrics(false);
+renderPipeline();
+</script>
+</body>
+</html>
